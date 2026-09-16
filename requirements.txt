@@ -1,0 +1,6 @@
+# Pinned to the FastMCP 3.x line deliberately. FastMCP 4 (built for the
+# 2026-07-28 MCP spec revision) went GA in early September 2026 -- very
+# recent, and the GoogleProvider examples this server is based on are all
+# against 3.x. Revisit this pin once 4.x has had more time in the wild.
+fastmcp>=3.4,<4
+httpx>=0.27,<1

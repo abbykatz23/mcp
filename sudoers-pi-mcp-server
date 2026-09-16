@@ -1,0 +1,17 @@
+# Install with:
+#   sudo visudo -cf sudoers-pi-mcp-server   # syntax-check the file first
+#   sudo cp sudoers-pi-mcp-server /etc/sudoers.d/pi-mcp-server
+#   sudo chmod 440 /etc/sudoers.d/pi-mcp-server
+#
+# Grants the pi-mcp-server process (running as abbykatz) permission to
+# run exactly these six commands with no password -- nothing broader.
+# Confirm the systemctl path on your Pi first with `which systemctl`
+# (usually /usr/bin/systemctl on Raspberry Pi OS / Debian).
+
+abbykatz ALL=(root) NOPASSWD: \
+    /usr/bin/systemctl start mbta-display, \
+    /usr/bin/systemctl stop mbta-display, \
+    /usr/bin/systemctl restart mbta-display, \
+    /usr/bin/systemctl start kindle-web, \
+    /usr/bin/systemctl stop kindle-web, \
+    /usr/bin/systemctl restart kindle-web

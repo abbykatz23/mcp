@@ -1,0 +1,26 @@
+# Install to /etc/systemd/system/pi-mcp-server.service, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pi-mcp-server
+#   sudo systemctl status pi-mcp-server
+#   journalctl -u pi-mcp-server -f      # to watch it start up
+
+[Unit]
+Description=Personal MCP server (Pi home control)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=abbykatz
+WorkingDirectory=/home/abbykatz/pi-mcp-server
+EnvironmentFile=/home/abbykatz/pi-mcp-server/.env
+ExecStart=/home/abbykatz/pi-mcp-server/venv/bin/python3 /home/abbykatz/pi-mcp-server/server.py
+Restart=on-failure
+RestartSec=5
+# Must stay false: sudo needs setuid (a "new privilege") to run the
+# systemctl commands in sudoers-pi-mcp-server. The actual privilege
+# boundary is that sudoers file, scoped to two exact commands.
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target
