@@ -43,6 +43,16 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 PIXOO_IP = os.environ.get("PIXOO_IP", "10.0.0.212")
 PIXOO_URL = f"http://{PIXOO_IP}/post"
 
+# mbta-display polls for this flag file once per ~20s loop iteration and
+# backs off whenever it exists (see its main.py / settings.py). This must
+# match PIXOO_PAUSE_FLAG_PATH in mbta-display's own .env -- the default
+# below matches mbta-display's default, but if that's been overridden on
+# the Pi, override it here too.
+PIXOO_PAUSE_FLAG_PATH = Path(
+    os.environ.get("PIXOO_PAUSE_FLAG_PATH", "/tmp/pixoo_pause.flag")
+)
+PIXOO_PAUSE_SLEEP_SECONDS = 22  # a bit over one full mbta-display poll cycle
+
 AUDIT_LOG_PATH = Path(
     os.environ.get("MCP_AUDIT_LOG", str(Path(__file__).parent / "activity.log"))
 )
@@ -253,6 +263,84 @@ def _pixoo_post(payload: dict) -> dict:
 
 
 @mcp.tool
+def pixoo_take_over_display() -> dict:
+    """Pause mbta-display before making any change to what's on the Pixoo.
+
+    Call this FIRST, before pixoo_set_channel, pixoo_set_clock_face, or
+    any other call that changes what's showing on the screen. mbta-display
+    is a separate long-running service that redraws the Pixoo roughly
+    every 20 seconds; if you change the display without pausing it first,
+    it will overwrite your change on its next poll.
+
+    This touches a flag file that mbta-display checks once per poll loop,
+    then blocks for a bit over one full cycle (~22s) so mbta-display has
+    actually noticed and stopped pushing before returning -- skipping
+    that wait risks a race where your change lands right before an
+    in-flight frame push and gets immediately overwritten.
+
+    The flag is left in place when this returns, so mbta-display stays
+    paused indefinitely -- across as many Pixoo calls as you want to
+    make -- until you call pixoo_release_display(). ALWAYS call
+    pixoo_release_display() when you're done, even if something in
+    between fails or errors out: mbta-display fails silently while
+    paused, so a forgotten flag leaves it stuck with no visible error.
+    If you're ever unsure whether a previous take-over was released,
+    call pixoo_release_display() -- it's a safe no-op if nothing is
+    paused. As a last-resort manual fix, the flag file can simply be
+    deleted directly on the Pi.
+    """
+    _check_owner()
+    try:
+        PIXOO_PAUSE_FLAG_PATH.touch()
+    except OSError as exc:
+        _audit("pixoo_take_over_display", {}, "error", str(exc))
+        raise ToolError(f"Couldn't create pause flag at {PIXOO_PAUSE_FLAG_PATH}: {exc}") from exc
+    time.sleep(PIXOO_PAUSE_SLEEP_SECONDS)
+    _audit("pixoo_take_over_display", {}, "ok", f"flag={PIXOO_PAUSE_FLAG_PATH}")
+    return {
+        "status": "paused",
+        "flag_path": str(PIXOO_PAUSE_FLAG_PATH),
+        "message": (
+            "mbta-display is paused and should have stopped pushing frames. "
+            "Make your Pixoo change(s) now, then call pixoo_release_display() "
+            "when done -- it stays paused indefinitely otherwise."
+        ),
+    }
+
+
+@mcp.tool
+def pixoo_release_display() -> dict:
+    """Resume mbta-display after you're done changing the Pixoo.
+
+    Removes the flag touched by pixoo_take_over_display(). Within one
+    poll cycle (~20s) mbta-display will notice, force the Pixoo back to
+    its own custom channel itself, and resume pushing trains -- you do
+    NOT need to switch the channel back yourself first.
+
+    Safe to call even if nothing is currently paused (no-op). This is
+    also the recovery tool if a previous take-over was never released --
+    call it any time you're unsure, to be safe.
+    """
+    _check_owner()
+    was_present = PIXOO_PAUSE_FLAG_PATH.exists()
+    try:
+        PIXOO_PAUSE_FLAG_PATH.unlink(missing_ok=True)
+    except OSError as exc:
+        _audit("pixoo_release_display", {}, "error", str(exc))
+        raise ToolError(f"Couldn't remove pause flag at {PIXOO_PAUSE_FLAG_PATH}: {exc}") from exc
+    _audit(
+        "pixoo_release_display",
+        {},
+        "ok",
+        f"flag={PIXOO_PAUSE_FLAG_PATH} was_present={was_present}",
+    )
+    return {
+        "status": "released" if was_present else "was_not_paused",
+        "flag_path": str(PIXOO_PAUSE_FLAG_PATH),
+    }
+
+
+@mcp.tool
 def pixoo_get_channel() -> dict:
     """Get the Pixoo display's current channel.
 
@@ -272,6 +360,11 @@ def pixoo_set_channel(channel: int = 0) -> dict:
     channel: 3 = custom channel (MBTA trains); 0, 1, 2 = built-in Divoom
     channels. If asked to go to the "default", "built-in", or "divoom"
     channel with no number given, use 0.
+
+    Call pixoo_take_over_display() first, or mbta-display will overwrite
+    this within its next ~20s poll cycle. Call pixoo_release_display()
+    when you're done (not needed just to switch back to channel 3 --
+    releasing does that for you).
     """
     _check_owner()
     if channel not in (0, 1, 2, 3):
@@ -316,6 +409,10 @@ def pixoo_set_clock_face(clock_id: int) -> dict:
     Clock IDs on this device haven't been fully verified end-to-end --
     finding a working ID may take trial and error (set one, then look
     at the device to see what changed).
+
+    Call pixoo_take_over_display() first, or mbta-display will overwrite
+    this within its next ~20s poll cycle. Call pixoo_release_display()
+    when you're done.
     """
     _check_owner()
     result = _pixoo_post({"Command": "Channel/SetClockSelectId", "ClockId": clock_id})

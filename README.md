@@ -73,6 +73,9 @@ Fill in `.env`:
   rejected inside every tool)
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` -- from step 4
 - `PIXOO_IP` -- defaults to `10.0.0.212`, change if it's moved
+- `PIXOO_PAUSE_FLAG_PATH` -- defaults to `/tmp/pixoo_pause.flag`; must
+  match `PIXOO_PAUSE_FLAG_PATH` in mbta-display's own `.env` (check
+  there first -- this only matches if it hasn't been overridden)
 - `MCP_AUDIT_LOG` -- defaults to a file in this directory
 
 ## 6. Expose it via your existing Cloudflare Tunnel
