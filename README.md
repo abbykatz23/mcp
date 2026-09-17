@@ -154,7 +154,7 @@ building on top of it and discovering an auth issue later.
 | `get_service_status(service)` | status for `mbta-display`, `kindle-web`, or `n8n` |
 | `get_service_logs(service, lines, since, priority)` | journalctl / docker logs |
 | `control_service(service, action)` | start / stop / restart |
-| `get_remote_service_status(service)` | systemd status for an allow-listed unit (`oli-web` by default) on the second Pi, over SSH |
+| `get_remote_service_status(service?)` | systemd status for oli's e-ink display Pi (`oli-web` by default), over SSH |
 | `pixoo_take_over_display()` | pause mbta-display (touches flag, waits ~22s) before changing the Pixoo |
 | `pixoo_release_display()` | resume mbta-display (removes flag); also the manual recovery tool if a takeover was never released |
 | `pixoo_get_channel()` | current Pixoo channel |

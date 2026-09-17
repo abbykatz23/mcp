@@ -5,8 +5,8 @@ Personal MCP server for Abby's Raspberry Pi.
 Exposes, to a single authorized Google account:
   - status / logs / start-stop-restart for: mbta-display, kindle-web
     (systemd units) and n8n (Docker container)
-  - read-only systemd status for an allow-listed unit on a second Pi,
-    over SSH (password login)
+  - read-only systemd status for oli's e-ink display Pi (oli-web, the
+    Inky Impression display), over SSH (password login)
   - control of a Divoom Pixoo display over its local HTTP API
   - a JSONL audit log of every tool call, queryable via get_recent_activity
 
@@ -313,17 +313,35 @@ def _ssh_run(remote_cmd: list[str], timeout: int = 20) -> dict:
 
 
 @mcp.tool
-def get_remote_service_status(service: str) -> dict:
-    """Get systemd status for an allow-listed unit on the other Pi, over SSH.
+def get_remote_service_status(service: Optional[str] = None) -> dict:
+    """Get systemd status for oli's e-ink display Pi, over SSH.
+
+    This is the tool for anything about oli, oli's Pi, oli-web, the Inky
+    Impression, or the e-ink display -- e.g. "is oli's display up",
+    "check the inky impression status", "how's the eink display doing",
+    "is oli-web running". It's a completely separate machine from the
+    Pixoo/mbta-display one this server otherwise controls.
+
+    service: optional -- defaults to "oli-web", the only unit currently
+    configured (REMOTE_PI_SERVICES). Only pass this if you mean a
+    different unit name that's also been added to that allow-list;
+    anything not on it is rejected.
 
     Connects as REMOTE_PI_USER@REMOTE_PI_HOST using a password login (no
-    SSH key exchange configured for this). Only unit names listed in
-    REMOTE_PI_SERVICES are reachable -- nothing else, no matter what
-    string is passed here. Read-only: this runs `systemctl status`, it
-    doesn't start/stop/restart anything on that machine.
+    SSH key exchange configured for this). Read-only: this runs
+    `systemctl status`, it doesn't start/stop/restart anything on that
+    machine.
     """
     _check_owner()
-    if service not in REMOTE_PI_SERVICES:
+    if service is None:
+        if len(REMOTE_PI_SERVICES) != 1:
+            raise ToolError(
+                "No service specified, and REMOTE_PI_SERVICES doesn't have "
+                f"exactly one entry to default to. Allowed: "
+                f"{', '.join(REMOTE_PI_SERVICES) or '(none configured -- set REMOTE_PI_SERVICES)'}"
+            )
+        service = REMOTE_PI_SERVICES[0]
+    elif service not in REMOTE_PI_SERVICES:
         raise ToolError(
             f"Unknown remote service '{service}'. Allowed: "
             f"{', '.join(REMOTE_PI_SERVICES) or '(none configured -- set REMOTE_PI_SERVICES)'}"
