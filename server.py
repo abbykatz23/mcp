@@ -5,6 +5,8 @@ Personal MCP server for Abby's Raspberry Pi.
 Exposes, to a single authorized Google account:
   - status / logs / start-stop-restart for: mbta-display, kindle-web
     (systemd units) and n8n (Docker container)
+  - read-only systemd status for an allow-listed unit on a second Pi,
+    over SSH (password login)
   - control of a Divoom Pixoo display over its local HTTP API
   - a JSONL audit log of every tool call, queryable via get_recent_activity
 
@@ -20,6 +22,7 @@ start/stop/restart of the two systemd units.
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -56,6 +59,21 @@ PIXOO_PAUSE_SLEEP_SECONDS = 22  # a bit over one full mbta-display poll cycle
 AUDIT_LOG_PATH = Path(
     os.environ.get("MCP_AUDIT_LOG", str(Path(__file__).parent / "activity.log"))
 )
+
+# A second Pi on the same LAN, reachable over SSH with a username/password
+# login (no key exchange set up). Only for read-only systemd status checks
+# on an explicit allow-list of unit names below -- see get_remote_service_status.
+REMOTE_PI_HOST = os.environ.get("REMOTE_PI_HOST", "10.0.0.236")
+REMOTE_PI_USER = os.environ.get("REMOTE_PI_USER", "oli")
+REMOTE_PI_PASSWORD = os.environ.get("REMOTE_PI_PASSWORD")
+# Comma-separated list of systemd unit names on that Pi this server may
+# query. Nothing outside this list is reachable no matter what a tool
+# call asks for -- same principle as SERVICES above.
+REMOTE_PI_SERVICES = [
+    s.strip()
+    for s in os.environ.get("REMOTE_PI_SERVICES", "oli-web").split(",")
+    if s.strip()
+]
 
 # Every service this server is allowed to touch. Nothing outside this map
 # is reachable no matter what a tool call asks for -- this is the whole
@@ -245,6 +263,74 @@ def control_service(service: ServiceName, action: Literal["start", "stop", "rest
     result = _run(cmd)
     outcome = "ok" if result["returncode"] == 0 else "error"
     _audit("control_service", {"service": service, "action": action}, outcome, result["stderr"])
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Remote status check (a second Pi, over SSH with a password login)
+# ---------------------------------------------------------------------------
+
+
+def _ssh_run(remote_cmd: list[str], timeout: int = 20) -> dict:
+    """Run a fixed argument list on REMOTE_PI_HOST over SSH, via sshpass.
+
+    Password goes in through the SSHPASS env var, not a -p flag or the
+    command line, so it doesn't show up in `ps` output for other users
+    on the box. Never builds a shell string -- remote_cmd is passed as
+    a literal argv to the remote sshd, same discipline as _run().
+    """
+    if not REMOTE_PI_PASSWORD:
+        raise ToolError("REMOTE_PI_PASSWORD is not configured.")
+    if shutil.which("sshpass") is None:
+        raise ToolError(
+            "sshpass isn't installed on this host -- install it "
+            "(e.g. `sudo apt install sshpass`) to use remote SSH tools."
+        )
+    cmd = [
+        "sshpass",
+        "-e",
+        "ssh",
+        "-o", "BatchMode=no",
+        "-o", "NumberOfPasswordPrompts=1",
+        "-o", "PreferredAuthentications=password",
+        "-o", "PubkeyAuthentication=no",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=10",
+        f"{REMOTE_PI_USER}@{REMOTE_PI_HOST}",
+        "--",
+        *remote_cmd,
+    ]
+    env = dict(os.environ, SSHPASS=REMOTE_PI_PASSWORD)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        return {
+            "returncode": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        return {"returncode": -1, "stdout": "", "stderr": str(exc)}
+
+
+@mcp.tool
+def get_remote_service_status(service: str) -> dict:
+    """Get systemd status for an allow-listed unit on the other Pi, over SSH.
+
+    Connects as REMOTE_PI_USER@REMOTE_PI_HOST using a password login (no
+    SSH key exchange configured for this). Only unit names listed in
+    REMOTE_PI_SERVICES are reachable -- nothing else, no matter what
+    string is passed here. Read-only: this runs `systemctl status`, it
+    doesn't start/stop/restart anything on that machine.
+    """
+    _check_owner()
+    if service not in REMOTE_PI_SERVICES:
+        raise ToolError(
+            f"Unknown remote service '{service}'. Allowed: "
+            f"{', '.join(REMOTE_PI_SERVICES) or '(none configured -- set REMOTE_PI_SERVICES)'}"
+        )
+    result = _ssh_run(["systemctl", "status", service, "--no-pager"])
+    outcome = "ok" if result["returncode"] == 0 else "error"
+    _audit("get_remote_service_status", {"service": service}, outcome, result["stdout"][:200])
     return result
 
 

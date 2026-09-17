@@ -34,7 +34,13 @@ sudo usermod -aG docker abbykatz
 # log out and back in for this to take effect
 ```
 
-## 3. Install the sudoers rule (for mbta-display / kindle-web control)
+## 3. Install sshpass (for the remote Pi status check)
+
+```bash
+sudo apt install sshpass
+```
+
+## 4. Install the sudoers rule (for mbta-display / kindle-web control)
 
 ```bash
 which systemctl   # confirm the path -- edit sudoers-pi-mcp-server if it's not /usr/bin/systemctl
@@ -43,7 +49,7 @@ sudo cp sudoers-pi-mcp-server /etc/sudoers.d/pi-mcp-server
 sudo chmod 440 /etc/sudoers.d/pi-mcp-server
 ```
 
-## 4. Create a Google OAuth client
+## 5. Create a Google OAuth client
 
 This is what lets claude.ai authenticate you (and only you) to the server.
 
@@ -60,7 +66,7 @@ This is what lets claude.ai authenticate you (and only you) to the server.
    `https://mcp.pre-idea.com/auth/callback`
 5. Save, and copy the generated Client ID and Client Secret.
 
-## 5. Configure
+## 6. Configure
 
 ```bash
 cp .env.example .env
@@ -71,14 +77,22 @@ Fill in `.env`:
 - `MCP_OWNER_EMAIL` -- your Google account email (this is the actual
   access control -- anyone else who completes Google login is still
   rejected inside every tool)
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` -- from step 4
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` -- from step 5
 - `PIXOO_IP` -- defaults to `10.0.0.212`, change if it's moved
 - `PIXOO_PAUSE_FLAG_PATH` -- defaults to `/tmp/pixoo_pause.flag`; must
   match `PIXOO_PAUSE_FLAG_PATH` in mbta-display's own `.env` (check
   there first -- this only matches if it hasn't been overridden)
 - `MCP_AUDIT_LOG` -- defaults to a file in this directory
+- `REMOTE_PI_HOST` / `REMOTE_PI_USER` / `REMOTE_PI_PASSWORD` -- login for
+  the second Pi's read-only status check. Requires `sshpass` installed
+  on this Pi (`sudo apt install sshpass`), since it's a password login
+  rather than a key
+- `REMOTE_PI_SERVICES` -- comma-separated allow-list of systemd unit
+  names on that Pi that `get_remote_service_status` may query. Find
+  names by SSHing in yourself and running
+  `systemctl list-units --type=service --state=running`
 
-## 6. Expose it via your existing Cloudflare Tunnel
+## 7. Expose it via your existing Cloudflare Tunnel
 
 Same pattern as `n8n.pre-idea.com`. Add an ingress rule mapping
 `mcp.pre-idea.com` to `http://localhost:8000`, e.g. in your tunnel's
@@ -96,7 +110,7 @@ ingress:
 Then add the corresponding DNS record (`cloudflared tunnel route dns
 <tunnel-name> mcp.pre-idea.com`) and restart the tunnel.
 
-## 7. Install and start the service
+## 8. Install and start the service
 
 ```bash
 sudo cp pi-mcp-server.service /etc/systemd/system/
@@ -106,10 +120,10 @@ journalctl -u pi-mcp-server -f
 ```
 
 You should see FastMCP start up and bind to `127.0.0.1:8000`. Leave the
-`journalctl -f` running while you do step 8, so you can see what happens
+`journalctl -f` running while you do step 9, so you can see what happens
 on the first connection attempt.
 
-## 8. Add it to Claude
+## 9. Add it to Claude
 
 In claude.ai: **Settings → Connectors → Add custom connector**, and enter:
 
@@ -140,6 +154,9 @@ building on top of it and discovering an auth issue later.
 | `get_service_status(service)` | status for `mbta-display`, `kindle-web`, or `n8n` |
 | `get_service_logs(service, lines, since, priority)` | journalctl / docker logs |
 | `control_service(service, action)` | start / stop / restart |
+| `get_remote_service_status(service)` | systemd status for an allow-listed unit (`oli-web` by default) on the second Pi, over SSH |
+| `pixoo_take_over_display()` | pause mbta-display (touches flag, waits ~22s) before changing the Pixoo |
+| `pixoo_release_display()` | resume mbta-display (removes flag); also the manual recovery tool if a takeover was never released |
 | `pixoo_get_channel()` | current Pixoo channel |
 | `pixoo_set_channel(channel)` | switch channel (3 = trains, 0/1/2 = built-in) |
 | `pixoo_get_device_config()` | full Pixoo device config |
