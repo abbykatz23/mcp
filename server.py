@@ -280,14 +280,22 @@ def pixoo_take_over_display() -> dict:
 
     The flag is left in place when this returns, so mbta-display stays
     paused indefinitely -- across as many Pixoo calls as you want to
-    make -- until you call pixoo_release_display(). ALWAYS call
-    pixoo_release_display() when you're done, even if something in
-    between fails or errors out: mbta-display fails silently while
-    paused, so a forgotten flag leaves it stuck with no visible error.
-    If you're ever unsure whether a previous take-over was released,
-    call pixoo_release_display() -- it's a safe no-op if nothing is
-    paused. As a last-resort manual fix, the flag file can simply be
-    deleted directly on the Pi.
+    make -- until you call pixoo_release_display(). That is the whole
+    point: the change you're about to make is meant to persist on
+    screen, not just flash briefly. Do NOT call pixoo_release_display()
+    right after making your change as if this were a single atomic
+    action -- only call it once the user explicitly asks to go back to
+    the trains display (or asks you to undo/cancel the takeover). If
+    the user's request was itself just "briefly show X", confirm with
+    them whether they want it to stay or revert before releasing.
+
+    The one exception is error recovery: if something fails partway
+    through and you're abandoning the takeover entirely, do release so
+    mbta-display doesn't stay stuck paused with no visible error. If
+    you're ever unsure whether a previous take-over was released, call
+    pixoo_release_display() -- it's a safe no-op if nothing is paused.
+    As a last-resort manual fix, the flag file can simply be deleted
+    directly on the Pi.
     """
     _check_owner()
     try:
@@ -316,6 +324,15 @@ def pixoo_release_display() -> dict:
     poll cycle (~20s) mbta-display will notice, force the Pixoo back to
     its own custom channel itself, and resume pushing trains -- you do
     NOT need to switch the channel back yourself first.
+
+    Only call this when the user explicitly asks to go back to the
+    trains display, asks you to undo/cancel a takeover, or you're
+    abandoning a takeover after an error. Do NOT call this automatically
+    right after making a change with pixoo_set_channel or
+    pixoo_set_clock_face -- that would immediately undo the change you
+    were just asked to make. If it's unclear whether the user wants the
+    change to persist or was only a one-off "briefly show X", ask them
+    rather than guessing.
 
     Safe to call even if nothing is currently paused (no-op). This is
     also the recovery tool if a previous take-over was never released --
@@ -362,9 +379,12 @@ def pixoo_set_channel(channel: int = 0) -> dict:
     channel with no number given, use 0.
 
     Call pixoo_take_over_display() first, or mbta-display will overwrite
-    this within its next ~20s poll cycle. Call pixoo_release_display()
-    when you're done (not needed just to switch back to channel 3 --
-    releasing does that for you).
+    this within its next ~20s poll cycle. Do NOT call
+    pixoo_release_display() right after this as if the two were one
+    action -- leave the display paused so the change actually persists.
+    Only release once the user explicitly asks to switch back to trains
+    (releasing does that for you; no need to call pixoo_set_channel(3)
+    yourself).
     """
     _check_owner()
     if channel not in (0, 1, 2, 3):
@@ -411,8 +431,10 @@ def pixoo_set_clock_face(clock_id: int) -> dict:
     at the device to see what changed).
 
     Call pixoo_take_over_display() first, or mbta-display will overwrite
-    this within its next ~20s poll cycle. Call pixoo_release_display()
-    when you're done.
+    this within its next ~20s poll cycle. Do NOT call
+    pixoo_release_display() right after this as if the two were one
+    action -- leave the display paused so the change actually persists.
+    Only release once the user explicitly asks to switch back to trains.
     """
     _check_owner()
     result = _pixoo_post({"Command": "Channel/SetClockSelectId", "ClockId": clock_id})
