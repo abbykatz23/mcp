@@ -479,8 +479,17 @@ def pixoo_set_channel(channel: int = 0) -> dict:
     """Set the Pixoo display's channel.
 
     channel: 3 = custom channel (MBTA trains); 0, 1, 2 = built-in Divoom
-    channels. If asked to go to the "default", "built-in", or "divoom"
-    channel with no number given, use 0.
+    channels, defaulting to 0. This is the ONLY tool for a request to
+    show the "default", "built-in", "divoom", or generic "clock" screen
+    -- treat any of those phrasings as unambiguously meaning channel 0
+    and just call this with no arguments. Do not ask which built-in
+    channel is meant unless the user names a specific number (1 or 2);
+    "default"/"built-in"/"divoom" alone is not actually ambiguous with
+    the trains display, since the user is explicitly asking for
+    Divoom's own screen, not mbta-display's. Do NOT reach for
+    pixoo_set_clock_face for this kind of request -- that tool is for
+    picking a specific clock face *design* once already on a built-in
+    channel, not for getting to the built-in channel in the first place.
 
     Call pixoo_take_over_display() first, or mbta-display will overwrite
     this within its next ~20s poll cycle. Do NOT call
@@ -528,7 +537,14 @@ def pixoo_get_clock_info() -> dict:
 
 @mcp.tool
 def pixoo_set_clock_face(clock_id: int) -> dict:
-    """Set the Pixoo's clock face by ID.
+    """Set the Pixoo's clock face DESIGN by ID, within a built-in channel.
+
+    Only use this when the user names or describes a specific clock
+    face design (e.g. "the digital one", "clock face 5", "the one with
+    the date on it"). Do NOT use this for a generic "switch to the
+    default/built-in/divoom screen" request with no specific design
+    mentioned -- that's pixoo_set_channel(channel=0) instead, and
+    doesn't need a clock_id guess at all.
 
     Clock IDs on this device haven't been fully verified end-to-end --
     finding a working ID may take trial and error (set one, then look
